@@ -50,17 +50,35 @@ const upload = multer({
   }
 });
 
-// Database Connection with graceful fallback
+// Database Connection with cached promise for Serverless (Vercel)
 let dbConnected = false;
-mongoose.connect(MONGODB_URI)
-  .then(() => {
-    dbConnected = true;
-    console.log('✓ Connecté à MongoDB avec succès sur', MONGODB_URI);
-  })
-  .catch((err) => {
-    console.warn('⚠️ Avertissement MongoDB :', err.message);
-    console.warn('Mode JSON actif en secours.');
-  });
+let dbPromise = null;
+
+async function connectDB() {
+  if (dbConnected && mongoose.connection.readyState === 1) return true;
+  if (!dbPromise) {
+    dbPromise = mongoose.connect(MONGODB_URI)
+      .then(() => {
+        dbConnected = true;
+        console.log('✓ Connecté à MongoDB avec succès sur', MONGODB_URI);
+        return true;
+      })
+      .catch((err) => {
+        dbPromise = null;
+        console.warn('⚠️ Avertissement MongoDB :', err.message);
+        console.warn('Mode JSON actif en secours.');
+        return false;
+      });
+  }
+  return dbPromise;
+}
+
+connectDB();
+
+app.use(async (req, res, next) => {
+  await connectDB();
+  next();
+});
 
 // JSON fallback file paths
 const DATA_DIR = path.join(__dirname, '..', 'gennevilliers-shop', 'data');
